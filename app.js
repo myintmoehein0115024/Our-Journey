@@ -71,7 +71,7 @@ function closeInstallModal(){
 }
 installTrigger?.addEventListener("click", openInstallModal);
 document.querySelectorAll("[data-install-close]").forEach(el => el.addEventListener("click", closeInstallModal));
-document.addEventListener("keydown", e => { if (e.key === "Escape") { if (installModal && !installModal.hidden) closeInstallModal(); if (!$("memoryModal")?.hidden) closeMemoryModal(); if (!$("memoryLightbox")?.hidden) closeLightbox(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { if (installModal && !installModal.hidden) closeInstallModal(); if (!$("memoryModal")?.hidden) closeMemoryModal(); if (!$("memoryLightbox")?.hidden) closeLightbox(); if (!$("memoryImageEditor")?.hidden) closeImageEditor(); } });
 window.addEventListener("beforeinstallprompt", event => { event.preventDefault(); deferredInstallPrompt=event; updateInstallUI(); });
 nativeInstall?.addEventListener("click", async () => { if (!deferredInstallPrompt) return; deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice; deferredInstallPrompt=null; closeInstallModal(); updateInstallUI(); });
 window.addEventListener("appinstalled", () => { deferredInstallPrompt=null; closeInstallModal(); updateInstallUI(); });
@@ -228,8 +228,12 @@ function memoryCardHTML(item,index){
     <div class="memory-meta"><div><span>${date}</span><h3>${title}</h3></div><span class="memory-size">${formatBytes(item.size)}</span></div>
     ${note?`<p>${note}</p>`:""}
     <div class="memory-actions">
+      ${kind==="photo"?`<button class="memory-edit-btn" type="button" data-memory-edit aria-label="Edit ${title}" title="Edit photo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17v3Z"/><path d="m14.5 7.5 2 2"/></svg>
+        <span>Edit</span>
+      </button>`:""}
       <button class="memory-delete-btn" type="button" data-memory-delete aria-label="Delete ${title}" title="Delete memory">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h6M10 5V4h4v1m-8 2h12m-9 0 .6 11h8.8L19 7m-7 3v6m-3-6 .5 6m7-6-.5 6"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h6M10 5V4h4v1m-8 2h12m-9 0 .6 11h8.8L19 7m-7 3v6m-3-6-.5 6m7-6-.5 6"/></svg>
         <span>Delete</span>
       </button>
     </div>
@@ -389,6 +393,253 @@ async function uploadMemory(){
   }catch(err){console.error(err);if(posterId)await deleteViaWorker(posterId);showToast(err.message||"保存记忆失败","error");}
   finally{memoryUploadBtn.disabled=false;}
 }
+
+/* v10 — lightweight in-browser photo editor */
+const imageEditorState = {
+  item: null,
+  source: null,
+  sourceUrl: "",
+  rotation: 0,
+  flipX: false,
+  flipY: false,
+  brightness: 100,
+  contrast: 100,
+  saturation: 100,
+  grayscale: 0
+};
+
+function editorSupportedType(mime){
+  return /^image\/(jpeg|png|webp)$/i.test(String(mime||""));
+}
+
+function ensureImageEditor(){
+  let modal=document.getElementById("memoryImageEditor");
+  if(modal) return modal;
+  modal=document.createElement("div");
+  modal.id="memoryImageEditor";
+  modal.className="memory-image-editor";
+  modal.hidden=true;
+  modal.innerHTML=`<div class="memory-editor-backdrop" data-editor-close></div>
+    <section class="memory-editor-sheet" role="dialog" aria-modal="true" aria-labelledby="memoryEditorTitle">
+      <button class="memory-editor-close" type="button" data-editor-close aria-label="Close">×</button>
+      <div class="memory-editor-head">
+        <span class="memory-editor-eyebrow">PHOTO STUDIO</span>
+        <h3 id="memoryEditorTitle">Edit your memory</h3>
+        <p id="memoryEditorSubtitle">Your original stays untouched until you save the edited version.</p>
+      </div>
+      <div class="memory-editor-stage">
+        <div class="memory-editor-canvas-wrap">
+          <canvas id="memoryEditorCanvas" aria-label="Edited photo preview"></canvas>
+          <div class="memory-editor-loading" id="memoryEditorLoading">Preparing photo…</div>
+        </div>
+        <div class="memory-editor-panel">
+          <div class="memory-editor-toolgrid">
+            <button type="button" class="memory-editor-tool" data-editor-rotate><span>↻</span><small>Rotate</small></button>
+            <button type="button" class="memory-editor-tool" data-editor-flip-x><span>↔</span><small>Flip</small></button>
+            <button type="button" class="memory-editor-tool" data-editor-reset><span>↺</span><small>Reset</small></button>
+          </div>
+          <div class="memory-editor-sliders">
+            <label><span>Brightness</span><b data-editor-value="brightness">100%</b><input type="range" min="60" max="140" value="100" step="1" data-editor-range="brightness"></label>
+            <label><span>Contrast</span><b data-editor-value="contrast">100%</b><input type="range" min="60" max="140" value="100" step="1" data-editor-range="contrast"></label>
+            <label><span>Saturation</span><b data-editor-value="saturation">100%</b><input type="range" min="0" max="160" value="100" step="1" data-editor-range="saturation"></label>
+            <label><span>Fade to B&amp;W</span><b data-editor-value="grayscale">0%</b><input type="range" min="0" max="100" value="0" step="1" data-editor-range="grayscale"></label>
+          </div>
+          <div class="memory-editor-tip"><span>♡</span><p>Edits are processed in your browser, then the finished photo replaces the current photo in your private Drive.</p></div>
+        </div>
+      </div>
+      <div class="memory-editor-actions">
+        <button type="button" class="memory-editor-cancel" data-editor-close>Cancel</button>
+        <button type="button" class="memory-editor-save" data-editor-save>Save changes</button>
+      </div>
+    </section>`;
+  document.body.appendChild(modal);
+
+  modal.addEventListener("click", event=>{
+    if(event.target.closest("[data-editor-close]")) closeImageEditor();
+    if(event.target.closest("[data-editor-rotate]")){imageEditorState.rotation=(imageEditorState.rotation+90)%360;drawImageEditor();}
+    if(event.target.closest("[data-editor-flip-x]")){imageEditorState.flipX=!imageEditorState.flipX;drawImageEditor();}
+    if(event.target.closest("[data-editor-reset]")){resetImageEditor();drawImageEditor();}
+    if(event.target.closest("[data-editor-save]")) saveImageEdit();
+    const range=event.target.closest("[data-editor-range]");
+    if(range && range.tagName==="INPUT"){ const key=range.dataset.editorRange; imageEditorState[key]=Number(range.value); updateEditorValue(key); requestAnimationFrame(drawImageEditor); }
+  });
+  modal.querySelectorAll("[data-editor-range]").forEach(input=>{
+    input.addEventListener("input",()=>{
+      const key=input.dataset.editorRange;
+      imageEditorState[key]=Number(input.value);
+      updateEditorValue(key);
+      drawImageEditor();
+    });
+  });
+  return modal;
+}
+
+function updateEditorValue(key){
+  const el=document.querySelector(`[data-editor-value="${key}"]`);
+  if(el) el.textContent=`${Math.round(imageEditorState[key])}%`;
+}
+
+function resetImageEditor(){
+  imageEditorState.rotation=0;
+  imageEditorState.flipX=false;
+  imageEditorState.flipY=false;
+  imageEditorState.brightness=100;
+  imageEditorState.contrast=100;
+  imageEditorState.saturation=100;
+  imageEditorState.grayscale=0;
+  document.querySelectorAll("[data-editor-range]").forEach(input=>{
+    const key=input.dataset.editorRange;
+    input.value=String(imageEditorState[key]);
+    updateEditorValue(key);
+  });
+}
+
+async function loadEditorSource(item){
+  const blob=await fetchDriveBlob(item.id);
+  if(imageEditorState.sourceUrl) URL.revokeObjectURL(imageEditorState.sourceUrl);
+  imageEditorState.sourceUrl=URL.createObjectURL(blob);
+
+  if(window.createImageBitmap){
+    try{
+      imageEditorState.source=await createImageBitmap(blob);
+      return;
+    }catch{}
+  }
+  const img=new Image();
+  img.decoding="async";
+  img.src=imageEditorState.sourceUrl;
+  await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error("无法读取这张照片。"));});
+  imageEditorState.source=img;
+}
+
+function drawEditorToCanvas(canvas, maxSide=1800){
+  const source=imageEditorState.source;
+  if(!source) return;
+  const sourceW=source.width||source.naturalWidth;
+  const sourceH=source.height||source.naturalHeight;
+  const quarterTurn=imageEditorState.rotation%180!==0;
+  const outW=quarterTurn?sourceH:sourceW;
+  const outH=quarterTurn?sourceW:sourceH;
+  const scale=Math.min(1,maxSide/Math.max(outW,outH));
+  const w=Math.max(1,Math.round(outW*scale));
+  const h=Math.max(1,Math.round(outH*scale));
+  canvas.width=w; canvas.height=h;
+  const ctx=canvas.getContext("2d",{alpha:true});
+  ctx.clearRect(0,0,w,h);
+  ctx.save();
+  ctx.translate(w/2,h/2);
+  ctx.rotate(imageEditorState.rotation*Math.PI/180);
+  ctx.scale(imageEditorState.flipX?-1:1,imageEditorState.flipY?-1:1);
+  ctx.filter=`brightness(${imageEditorState.brightness}%) contrast(${imageEditorState.contrast}%) saturate(${imageEditorState.saturation}%) grayscale(${imageEditorState.grayscale}%)`;
+  ctx.drawImage(source,-sourceW*scale/2,-sourceH*scale/2,sourceW*scale,sourceH*scale);
+  ctx.restore();
+}
+
+function drawImageEditor(){
+  const canvas=document.getElementById("memoryEditorCanvas");
+  if(canvas) drawEditorToCanvas(canvas,1800);
+}
+
+function openImageEditor(item){
+  if(!item?.id) return;
+  if(item.mimeType && !editorSupportedType(item.mimeType)){
+    showToast("这张照片格式暂不支持浏览器编辑，请使用 JPG、PNG 或 WebP。","error");
+    return;
+  }
+  if(!driveReady){showToast("Google Drive 还在连接，请稍等片刻。","error");return;}
+  const modal=ensureImageEditor();
+  const loading=modal.querySelector("#memoryEditorLoading");
+  const canvas=modal.querySelector("#memoryEditorCanvas");
+  const save=modal.querySelector("[data-editor-save]");
+  imageEditorState.item=item;
+  resetImageEditor();
+  modal.hidden=false;
+  modal.setAttribute("aria-hidden","false");
+  document.body.style.overflow="hidden";
+  if(loading) loading.hidden=false;
+  if(canvas) canvas.hidden=true;
+  if(save) save.disabled=true;
+  (async()=>{
+    try{
+      await loadEditorSource(item);
+      if(canvas) canvas.hidden=false;
+      if(loading) loading.hidden=true;
+      if(save) save.disabled=false;
+      drawImageEditor();
+    }catch(error){
+      if(loading) loading.textContent="Unable to open this photo";
+      showToast(error.message||"无法打开照片","error");
+    }
+  })();
+}
+
+function closeImageEditor(){
+  const modal=document.getElementById("memoryImageEditor");
+  if(!modal) return;
+  modal.hidden=true;
+  modal.setAttribute("aria-hidden","true");
+  document.body.style.overflow="";
+  if(imageEditorState.source?.close) imageEditorState.source.close();
+  imageEditorState.source=null;
+  if(imageEditorState.sourceUrl){URL.revokeObjectURL(imageEditorState.sourceUrl);imageEditorState.sourceUrl="";}
+  imageEditorState.item=null;
+}
+
+function canvasToEditedFile(item){
+  const canvas=document.getElementById("memoryEditorCanvas");
+  if(!canvas) return Promise.reject(new Error("编辑画布不存在。"));
+  return new Promise((resolve,reject)=>{
+    let mime=/^image\/(png|webp|jpeg)$/i.test(item.mimeType||"") ? item.mimeType : "image/jpeg";
+    const ext=mime==="image/png"?".png":mime==="image/webp"?".webp":".jpg";
+    const done=blob=>{
+      if(!blob){reject(new Error("图片导出失败。"));return;}
+      resolve(new File([blob],String(item.name||"memory").replace(/\.[^.]+$/,"")+ext,{type:mime,lastModified:Date.now()}));
+    };
+    canvas.toBlob(done,mime,mime==="image/png"?undefined:0.92);
+  });
+}
+
+async function saveImageEdit(){
+  const item=imageEditorState.item;
+  if(!item) return;
+  if(!(await ensureDriveReady())) return;
+  const modal=ensureImageEditor();
+  const save=modal.querySelector("[data-editor-save]");
+  if(save) save.disabled=true;
+  try{
+    showToast("Preparing your edited photo…");
+    const file=await canvasToEditedFile(item);
+    const props=item.appProperties||{};
+    const metadata={
+      name:file.name,
+      parents:[driveContext.photosId],
+      appProperties:{
+        oj_kind:"photo",
+        oj_date:props.oj_date||item.createdTime?.slice(0,10)||isoToday(),
+        oj_title:props.oj_title||item.name||"Edited memory",
+        oj_note:props.oj_note||"",
+        oj_posterId:"",
+        oj_originalName:props.oj_originalName||item.name,
+        oj_editedAt:new Date().toISOString()
+      }
+    };
+    const result=await uploadViaWorker(file,metadata);
+    if(!result?.id) throw new Error("Google Drive 没有返回新图片 ID。");
+    const removed=await deleteViaWorker(item.id);
+    closeImageEditor();
+    if(!removed){
+      showToast("新版本已保存，但旧图片删除失败。请刷新后检查重复文件。","error");
+    }else{
+      showToast("照片已更新。","success");
+    }
+    await listMemories();
+  }catch(error){
+    console.error(error);
+    showToast(error.message||"保存编辑结果失败","error");
+    if(save) save.disabled=false;
+  }
+}
+
 function openLightbox(item){
   lightboxMedia.innerHTML='<div class="lightbox-loading">Loading…</div>';
   lightboxCaption.innerHTML=`<strong>${escapeHTML(item.appProperties?.oj_title||item.name)}</strong><span>${escapeHTML(item.appProperties?.oj_date||"")}</span>${item.appProperties?.oj_note?`<p>${escapeHTML(item.appProperties.oj_note)}</p>`:""}`;
@@ -401,6 +652,15 @@ driveRefreshBtn?.addEventListener("click",()=>initOwnerDrive(true));
 memoryFile?.addEventListener("change",previewSelectedFile);memoryUploadBtn?.addEventListener("click",uploadMemory);
 document.querySelectorAll("[data-memory-close]").forEach(el=>el.addEventListener("click",closeMemoryModal));document.querySelectorAll("[data-lightbox-close]").forEach(el=>el.addEventListener("click",closeLightbox));
 memoryGrid?.addEventListener("click",event=>{
+  const editButton=event.target.closest("[data-memory-edit]");
+  if(editButton){
+    event.preventDefault();
+    event.stopPropagation();
+    const card=editButton.closest("[data-memory-index]");
+    const index=Number(card?.dataset.memoryIndex);
+    if(Number.isInteger(index)&&driveMemories[index]) openImageEditor(driveMemories[index]);
+    return;
+  }
   const deleteButton=event.target.closest("[data-memory-delete]");
   if(deleteButton){
     event.preventDefault();
