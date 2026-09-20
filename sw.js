@@ -1,9 +1,10 @@
-const CACHE = "our-journey-v3";
+const CACHE = "our-journey-v5";
 const CORE = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./drive-config.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

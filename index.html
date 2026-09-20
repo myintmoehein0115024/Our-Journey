@@ -15,6 +15,8 @@
   <meta name="description" content="Our little story — memories, birthdays, and the journey of M ♡ T.">
   <title>Our Journey ♡ M 💞 T</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="drive-config.js"></script>
 </head>
 <body>
   <div class="page-glow glow-one"></div>
@@ -25,9 +27,11 @@
 
   <header class="site-header">
     <div class="brand-row">
-      <div class="brand-mark">
+      <div class="brand-mark brand-mark-v4" aria-label="M heart T">
         <span class="line"></span>
-        <span>M</span><span class="heart">♡</span><span>T</span>
+        <span class="brand-letter">M</span>
+        <span class="brand-heart" aria-hidden="true">♥</span>
+        <span class="brand-letter">T</span>
         <span class="line"></span>
       </div>
       <button class="install-trigger" id="installTrigger" type="button" hidden>
@@ -36,10 +40,65 @@
     </div>
     <h1>Our Journey<span>♡</span></h1>
     <p>DIFFERENT DAYS · SAME LOVE</p>
+    <div class="journey-status">
+      <span class="status-dot"></span>
+      <span>OUR STORY IS STILL BEING WRITTEN</span>
+    </div>
     <div class="header-note note-left">A little room<br>for a big love ♡</div>
     <div class="header-note note-right">More memories<br>to come... ♡</div>
   </header>
 
+
+  <div class="memory-modal" id="memoryModal" hidden aria-hidden="true">
+    <div class="memory-backdrop" data-memory-close></div>
+    <section class="memory-sheet" role="dialog" aria-modal="true" aria-labelledby="memoryTitle">
+      <button class="memory-close" type="button" data-memory-close aria-label="Close">×</button>
+      <span class="section-kicker">A NEW LITTLE MEMORY</span>
+      <h2 id="memoryTitle">Add something<br><em>worth keeping.</em></h2>
+
+      <div class="memory-file-row">
+        <label class="memory-file-picker" for="memoryFile">
+          <span class="memory-file-icon">＋</span>
+          <span><strong>Choose photo or video</strong><small id="memoryFileName">Nothing selected yet</small></span>
+        </label>
+        <input id="memoryFile" type="file" accept="image/*,video/*" hidden>
+      </div>
+
+      <div class="memory-preview" id="memoryPreview" hidden></div>
+
+      <div class="memory-form-grid">
+        <label><span>Date</span><input id="memoryDate" type="date"></label>
+        <label><span>Title</span><input id="memoryTitleInput" type="text" maxlength="80" placeholder="A little moment"></label>
+      </div>
+      <label class="memory-note-field"><span>Note</span><textarea id="memoryNote" maxlength="240" rows="3" placeholder="What makes this moment ours?"></textarea></label>
+
+      <label class="memory-toggle">
+        <input id="memorySoftTone" type="checkbox" checked>
+        <span class="toggle-ui"></span>
+        <span><strong>Soft pastel finish</strong><small>Subtle color polish for new photos. Originals are not overwritten.</small></span>
+      </label>
+
+      <div class="memory-progress" id="memoryProgress" hidden>
+        <div class="progress-top"><span id="memoryProgressLabel">Preparing…</span><b id="memoryProgressValue">0%</b></div>
+        <div class="progress-track"><i id="memoryProgressBar"></i></div>
+      </div>
+
+      <div class="memory-actions">
+        <button class="soft-btn" type="button" data-memory-close>Cancel</button>
+        <button class="primary-btn" type="button" id="memoryUploadBtn">Save to Google Drive <span>→</span></button>
+      </div>
+      <p class="memory-footnote">Large videos use resumable upload so a temporary connection drop is less painful.</p>
+    </section>
+  </div>
+
+  <div class="memory-lightbox" id="memoryLightbox" hidden aria-hidden="true">
+    <div class="lightbox-backdrop" data-lightbox-close></div>
+    <section class="lightbox-sheet" role="dialog" aria-modal="true" aria-label="Memory preview">
+      <button class="lightbox-close" type="button" data-lightbox-close aria-label="Close">×</button>
+      <div id="lightboxMedia"></div>
+      <div class="lightbox-caption" id="lightboxCaption"></div>
+    </section>
+  </div>
 
   <div class="install-modal" id="installModal" hidden aria-hidden="true">
     <div class="install-backdrop" data-install-close></div>
@@ -69,6 +128,11 @@
           <a class="primary-btn" href="#memories">Explore our story <span>→</span></a>
           <a class="soft-btn" href="#places">Our little places</a>
         </div>
+        <div class="story-counter" id="storyCounter" aria-live="polite">
+          <span>OUR STORY</span>
+          <b>Since 20 Mar 2024</b>
+          <i id="storyDays">— days together</i>
+        </div>
       </div>
       <div class="hero-card">
         <div class="mini-card-top">M <b>♡</b> T</div>
@@ -86,7 +150,7 @@
         <small>Our everyday talks</small>
         <i>↗</i>
       </a>
-      <a class="quick-card" href="#places">
+      <a class="quick-card" href="#memoryVault">
         <span class="quick-icon">▧</span>
         <strong>Photos</strong>
         <small>Moments we keep</small>
@@ -106,6 +170,40 @@
       </a>
     </section>
 
+
+    <section class="memory-vault" id="memoryVault" aria-label="Our private memory cabinet">
+      <div class="vault-head">
+        <div>
+          <span class="section-kicker">OUR PRIVATE MEMORY CABINET</span>
+          <h2>Keep the little moments<br><em>close to our story.</em></h2>
+          <p>Photos and videos stay in your private Google Drive. Our Journey only asks for access to the files it creates for this memory space.</p>
+        </div>
+        <div class="vault-tools">
+          <div class="drive-status" id="driveStatus">
+            <span class="drive-dot"></span>
+            <span id="driveStatusText">Google Drive not connected</span>
+          </div>
+          <div class="vault-buttons">
+            <button class="soft-btn drive-connect-btn" id="driveConnectBtn" type="button">Connect Google Drive</button>
+            <button class="primary-btn drive-add-btn" id="driveAddBtn" type="button" hidden>＋ Add Memory</button>
+            <button class="soft-btn drive-refresh-btn" id="driveRefreshBtn" type="button" hidden>Refresh</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="vault-note" id="driveSetupNote">
+        <span>♡</span>
+        <div><strong>Private by design</strong><p>The website does not need your Google password, and no Google Client Secret is stored in this GitHub Pages project.</p></div>
+      </div>
+
+      <div class="memory-grid" id="memoryGrid" aria-live="polite">
+        <article class="memory-empty" id="memoryEmpty">
+          <div class="memory-empty-mark">♡</div>
+          <h3>Your memories will live here.</h3>
+          <p>Connect Google Drive, then add the first photo or video to start the cabinet.</p>
+        </article>
+      </div>
+    </section>
 
     <section class="places-section" id="places">
       <div class="section-head places-head">
@@ -168,7 +266,7 @@
         <span class="section-kicker">♡ OUR MEMORIES</span>
         <h2>The little moments<br>we don't want to lose.</h2>
         <p>Two birthday surprises, one beginning, and many more chapters waiting to be written.</p>
-        <a href="#chapters" class="round-arrow" aria-label="Go to memories">→</a>
+        <a href="#memoryVault" class="round-arrow" aria-label="Open our private memory cabinet">→</a>
       </div>
     </section>
 
@@ -241,7 +339,7 @@
   <footer>
     <div class="footer-brand">ALWAYS YOURS</div>
     <div class="footer-sub">TODAY · TOMORROW · FOREVER</div>
-    <div class="footer-love">Made with love for Chit Chit ♡</div>
+    <div class="footer-love">A little place for us, made with love ♡</div>
   </footer>
 
   <button class="back-top" id="backTop" aria-label="Back to top">↑</button>
