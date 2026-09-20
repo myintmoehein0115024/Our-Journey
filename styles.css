@@ -120,3 +120,33 @@ footer{text-align:center;padding:30px 20px 45px;border-top:1px solid rgba(118,77
   .chapter-body h3{font-size:24px}.birthday-mark{display:none}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
+
+/* v2 — Our Little Places */
+.places-section{margin:10px 0 78px}
+.places-head{margin-bottom:25px}
+.places-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
+.place-card{
+  position:relative;min-height:245px;padding:24px 21px 21px;border-radius:25px;
+  overflow:hidden;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.94);
+  box-shadow:0 14px 42px rgba(117,78,131,.075);transition:transform .25s,box-shadow .25s
+}
+.place-card:hover{transform:translateY(-5px);box-shadow:0 22px 50px rgba(117,78,131,.13)}
+.place-card:after{content:"";position:absolute;width:120px;height:120px;border-radius:50%;right:-55px;bottom:-65px;border:1px solid rgba(166,109,159,.12)}
+.place-card>span:not(.place-number){display:block;font-size:8px;letter-spacing:.22em;color:#ad789f;margin-top:13px}
+.place-card h3{font-family:"Cormorant Garamond",serif;font-size:28px;margin:8px 0 5px}
+.place-card p{font-size:11px;line-height:1.65;color:#927c98;margin:0;max-width:210px}
+.place-card b{position:absolute;bottom:20px;left:21px;font-size:9px;letter-spacing:.04em;color:#ad6598;font-weight:600}
+.place-number{position:absolute;top:20px;right:20px;font-size:8px;letter-spacing:.2em;color:#b69ab7}
+.place-icon{width:46px;height:46px;border-radius:16px;display:grid;place-items:center;background:rgba(255,255,255,.7);color:#ae6c9f;font-family:"Cormorant Garamond",serif;font-size:24px;box-shadow:0 8px 20px rgba(110,74,124,.07)}
+.place-chat{background:linear-gradient(145deg,rgba(255,246,251,.95),rgba(239,229,246,.78))}
+.place-23{background:linear-gradient(145deg,rgba(255,249,251,.95),rgba(245,229,239,.8))}
+.place-24{background:linear-gradient(145deg,rgba(251,248,255,.95),rgba(231,224,246,.82))}
+.place-journey{background:linear-gradient(145deg,rgba(250,247,252,.95),rgba(239,233,245,.8))}
+@media(max-width:900px){.places-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){
+  .places-section{margin-bottom:55px}
+  .places-grid{grid-template-columns:1fr 1fr;gap:10px}
+  .place-card{min-height:225px;padding:18px 15px 17px}
+  .place-card h3{font-size:24px}.place-card p{font-size:10px}.place-card b{left:15px;bottom:17px}
+  .place-number{right:15px;top:17px}.place-icon{width:40px;height:40px;border-radius:14px}
+}

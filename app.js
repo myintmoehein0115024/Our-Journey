@@ -16,3 +16,12 @@ document.querySelectorAll('a[href^="#"]').forEach(link => {
     target.scrollIntoView({behavior:"smooth", block:"start"});
   });
 });
+
+// Keep internal navigation gentle and close to the top-level "Our Journey" feeling.
+const sectionLinks = document.querySelectorAll('a[href^="#"]');
+sectionLinks.forEach(link => {
+  link.addEventListener("click", () => {
+    document.body.classList.add("navigating");
+    window.setTimeout(() => document.body.classList.remove("navigating"), 450);
+  });
+});
