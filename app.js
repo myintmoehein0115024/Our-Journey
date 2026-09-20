@@ -227,6 +227,11 @@ function memoryCardHTML(item,index){
     </button>
     <div class="memory-meta"><div><span>${date}</span><h3>${title}</h3></div><span class="memory-size">${formatBytes(item.size)}</span></div>
     ${note?`<p>${note}</p>`:""}
+    <div class="memory-actions">
+      <button class="memory-delete-btn" type="button" data-memory-delete aria-label="Delete ${title}" title="Delete memory">
+        <span aria-hidden="true">⌫</span><span>Delete</span>
+      </button>
+    </div>
   </article>`;
 }
 async function listMemories(){
@@ -293,7 +298,77 @@ async function createVideoPoster(file){
 async function uploadViaWorker(file,metadata){
   const form=new FormData();form.append("metadata",JSON.stringify(metadata));form.append("file",file,file.name);const response=await workerFetch("/api/drive/upload",{method:"POST",body:form});return response.json();
 }
-async function deleteViaWorker(fileId){if(!fileId)return;try{await workerFetch(`/api/drive/file/${encodeURIComponent(fileId)}`,{method:"DELETE"});}catch{}}
+async function deleteViaWorker(fileId){
+  if(!fileId) return false;
+  try{
+    const response=await workerFetch(`/api/drive/file/${encodeURIComponent(fileId)}`,{method:"DELETE"});
+    return response.ok;
+  }catch(error){
+    console.warn("Drive delete failed", error);
+    return false;
+  }
+}
+
+function ensureDeleteDialog(){
+  let dialog=document.getElementById("memoryDeleteDialog");
+  if(dialog) return dialog;
+  dialog=document.createElement("div");
+  dialog.id="memoryDeleteDialog";
+  dialog.className="memory-delete-dialog";
+  dialog.hidden=true;
+  dialog.innerHTML=`<div class="memory-delete-backdrop" data-delete-cancel></div>
+    <div class="memory-delete-sheet" role="dialog" aria-modal="true" aria-labelledby="memoryDeleteTitle">
+      <span class="memory-delete-mark">⌫</span>
+      <h3 id="memoryDeleteTitle">Delete this memory?</h3>
+      <p id="memoryDeleteText">This memory will be removed from the private Google Drive.</p>
+      <div class="memory-delete-actions">
+        <button type="button" class="soft-btn" data-delete-cancel>Cancel</button>
+        <button type="button" class="primary-btn memory-delete-confirm" data-delete-confirm>Delete</button>
+      </div>
+    </div>`;
+  document.body.appendChild(dialog);
+  return dialog;
+}
+
+function confirmDeleteMemory(title){
+  const dialog=ensureDeleteDialog();
+  const text=dialog.querySelector("#memoryDeleteText");
+  const confirm=dialog.querySelector("[data-delete-confirm]");
+  if(text) text.textContent=`“${title}” will be permanently removed from the private Google Drive.`;
+  dialog.hidden=false;
+  document.body.style.overflow="hidden";
+  return new Promise(resolve=>{
+    const cleanup=result=>{
+      dialog.hidden=true;
+      document.body.style.overflow="";
+      dialog.removeEventListener("click", onClick);
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    };
+    const onClick=event=>{
+      if(event.target.closest("[data-delete-confirm]")){cleanup(true);return;}
+      if(event.target.closest("[data-delete-cancel]")){cleanup(false);}
+    };
+    const onKey=event=>{if(event.key==="Escape") cleanup(false);};
+    dialog.addEventListener("click",onClick);
+    document.addEventListener("keydown",onKey);
+    confirm?.focus();
+  });
+}
+
+async function deleteMemory(item){
+  if(!item?.id) return;
+  const title=item.appProperties?.oj_title||item.name||"this memory";
+  const approved=await confirmDeleteMemory(title);
+  if(!approved) return;
+  showToast("Deleting this memory…");
+  const deleted=await deleteViaWorker(item.id);
+  if(!deleted){showToast("删除失败，请稍后再试。","error");return;}
+  const posterId=item.appProperties?.oj_posterId||"";
+  if(posterId) await deleteViaWorker(posterId);
+  showToast(`已删除：${title}`,"success");
+  await listMemories();
+}
 async function uploadMemory(){
   const file=memoryFile.files?.[0];if(!file){showToast("先选择一张照片或一个视频。","error");return;}if(!memoryDate.value){showToast("请选择日期。","error");return;}if(!await ensureDriveReady())return;
   const kind=file.type.startsWith("video/")?"video":"photo";const targetId=kind==="video"?driveContext.videosId:driveContext.photosId;if(!targetId){showToast(`没有找到 ${kind==='video'?"Videos":"Photos"} 文件夹。` ,"error");return;}
@@ -322,7 +397,21 @@ driveAddBtn?.addEventListener("click",openMemoryModal);
 driveRefreshBtn?.addEventListener("click",()=>initOwnerDrive(true));
 memoryFile?.addEventListener("change",previewSelectedFile);memoryUploadBtn?.addEventListener("click",uploadMemory);
 document.querySelectorAll("[data-memory-close]").forEach(el=>el.addEventListener("click",closeMemoryModal));document.querySelectorAll("[data-lightbox-close]").forEach(el=>el.addEventListener("click",closeLightbox));
-memoryGrid?.addEventListener("click",event=>{const card=event.target.closest("[data-memory-index]");if(!card)return;const index=Number(card.dataset.memoryIndex);if(Number.isInteger(index)&&driveMemories[index])openLightbox(driveMemories[index]);});
+memoryGrid?.addEventListener("click",event=>{
+  const deleteButton=event.target.closest("[data-memory-delete]");
+  if(deleteButton){
+    event.preventDefault();
+    event.stopPropagation();
+    const card=deleteButton.closest("[data-memory-index]");
+    const index=Number(card?.dataset.memoryIndex);
+    if(Number.isInteger(index)&&driveMemories[index]) deleteMemory(driveMemories[index]);
+    return;
+  }
+  const card=event.target.closest("[data-memory-index]");
+  if(!card)return;
+  const index=Number(card.dataset.memoryIndex);
+  if(Number.isInteger(index)&&driveMemories[index])openLightbox(driveMemories[index]);
+});
 if(driveSetupNote&&workerConfigured())driveSetupNote.innerHTML='<span>♡</span><div><strong>Private by design</strong><p>This shared memory cabinet uses your private Google Drive through a secure Cloudflare Worker. Visitors do not need to sign in to Google.</p></div>';
 setDriveStatus("busy","Connecting to our private Drive…");
 window.addEventListener("pageshow",()=>initOwnerDrive(false));
