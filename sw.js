@@ -1,4 +1,4 @@
-const CACHE = "our-journey-v10-owner-drive-delete-edit";
+const CACHE = "our-journey-v11-owner-drive-memory-text-editor";
 const CORE = [
   "./",
   "./index.html",

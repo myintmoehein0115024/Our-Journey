@@ -71,7 +71,7 @@ function closeInstallModal(){
 }
 installTrigger?.addEventListener("click", openInstallModal);
 document.querySelectorAll("[data-install-close]").forEach(el => el.addEventListener("click", closeInstallModal));
-document.addEventListener("keydown", e => { if (e.key === "Escape") { if (installModal && !installModal.hidden) closeInstallModal(); if (!$("memoryModal")?.hidden) closeMemoryModal(); if (!$("memoryLightbox")?.hidden) closeLightbox(); if (!$("memoryImageEditor")?.hidden) closeImageEditor(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { if (installModal && !installModal.hidden) closeInstallModal(); if (!$("memoryModal")?.hidden) closeMemoryModal(); if (!$("memoryLightbox")?.hidden) closeLightbox(); if (!$("memoryImageEditor")?.hidden) closeImageEditor(); if (!$("memoryTextEditor")?.hidden) closeMemoryTextEditor(); } });
 window.addEventListener("beforeinstallprompt", event => { event.preventDefault(); deferredInstallPrompt=event; updateInstallUI(); });
 nativeInstall?.addEventListener("click", async () => { if (!deferredInstallPrompt) return; deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice; deferredInstallPrompt=null; closeInstallModal(); updateInstallUI(); });
 window.addEventListener("appinstalled", () => { deferredInstallPrompt=null; closeInstallModal(); updateInstallUI(); });
@@ -220,7 +220,8 @@ function memoryCardHTML(item,index){
   const kind=item.mimeType?.startsWith("video/")?"video":"photo";
   const posterId=item.appProperties?.oj_posterId||"";
   const mediaId=kind==="video"?posterId:item.id;
-  return `<article class="memory-card" data-memory-index="${index}">
+  const textStyle=memoryTextStyle(item);
+  return `<article class="memory-card" ${textStyle} data-memory-index="${index}">
     <button class="memory-visual" type="button" aria-label="Open ${title}">
       <div class="memory-media-shell" data-memory-media data-id="${escapeHTML(mediaId)}" data-kind="${kind}" data-name="${escapeHTML(item.name)}"><span class="memory-loading">♡</span></div>
       ${kind==='video'?'<span class="memory-type">VIDEO</span>':''}
@@ -228,10 +229,10 @@ function memoryCardHTML(item,index){
     <div class="memory-meta"><div><span>${date}</span><h3>${title}</h3></div><span class="memory-size">${formatBytes(item.size)}</span></div>
     ${note?`<p>${note}</p>`:""}
     <div class="memory-actions">
-      ${kind==="photo"?`<button class="memory-edit-btn" type="button" data-memory-edit aria-label="Edit ${title}" title="Edit photo">
+      <button class="memory-edit-btn" type="button" data-memory-edit aria-label="Edit ${title}" title="Edit memory">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17v3Z"/><path d="m14.5 7.5 2 2"/></svg>
         <span>Edit</span>
-      </button>`:""}
+      </button>
       <button class="memory-delete-btn" type="button" data-memory-delete aria-label="Delete ${title}" title="Delete memory">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h6M10 5V4h4v1m-8 2h12m-9 0 .6 11h8.8L19 7m-7 3v6m-3-6-.5 6m7-6-.5 6"/></svg>
         <span>Delete</span>
@@ -392,6 +393,110 @@ async function uploadMemory(){
     setProgress("Saved to our little cabinet",100);showToast(`已保存：${title}`,"success");closeMemoryModal();await listMemories();
   }catch(err){console.error(err);if(posterId)await deleteViaWorker(posterId);showToast(err.message||"保存记忆失败","error");}
   finally{memoryUploadBtn.disabled=false;}
+}
+
+/* v11 — memory text/style editor */
+const memoryTextEditorState={item:null};
+const EDITOR_FONT_OPTIONS={
+  cormorant:{label:"Cormorant Garamond",family:'"Cormorant Garamond",serif'},
+  parisienne:{label:"Parisienne",family:'Parisienne,cursive'},
+  dm:{label:"DM Sans",family:'"DM Sans",sans-serif'},
+  georgia:{label:"Georgia",family:'Georgia,serif'},
+  system:{label:"System",family:'system-ui,sans-serif'}
+};
+function safeEditorFont(value){return EDITOR_FONT_OPTIONS[String(value||"")]?String(value):"cormorant";}
+function safeEditorSize(value,base=24){const n=Number(value);return Number.isFinite(n)?Math.max(12,Math.min(48,Math.round(n))):base;}
+function safeEditorColor(value,base="#65486d"){return /^#[0-9a-f]{6}$/i.test(String(value||""))?String(value):base;}
+function safeEditorAlign(value){return ["left","center"].includes(String(value))?String(value):"left";}
+function memoryTextStyle(item){
+  const props=item?.appProperties||{};
+  const titleFont=safeEditorFont(props.oj_titleFont);
+  const noteFont=safeEditorFont(props.oj_noteFont||"dm");
+  const titleSize=safeEditorSize(props.oj_titleSize,24);
+  const noteSize=safeEditorSize(props.oj_noteSize,10);
+  const titleColor=safeEditorColor(props.oj_titleColor,"#65486d");
+  const noteColor=safeEditorColor(props.oj_noteColor,"#9b839f");
+  const align=safeEditorAlign(props.oj_textAlign);
+  return `style="--memory-title-font:${EDITOR_FONT_OPTIONS[titleFont].family};--memory-title-size:${titleSize}px;--memory-title-color:${titleColor};--memory-note-font:${EDITOR_FONT_OPTIONS[noteFont].family};--memory-note-size:${noteSize}px;--memory-note-color:${noteColor};--memory-text-align:${align}"`;
+}
+function ensureMemoryTextEditor(){
+  let modal=document.getElementById("memoryTextEditor");
+  if(modal) return modal;
+  modal=document.createElement("div");modal.id="memoryTextEditor";modal.className="memory-text-editor";modal.hidden=true;
+  modal.innerHTML=`<div class="memory-text-backdrop" data-text-editor-close></div>
+  <section class="memory-text-sheet" role="dialog" aria-modal="true" aria-labelledby="memoryTextEditorTitle">
+    <button class="memory-text-close" type="button" data-text-editor-close aria-label="Close">×</button>
+    <div class="memory-text-head"><span class="memory-text-eyebrow">MEMORY DETAILS</span><h3 id="memoryTextEditorTitle">Edit this memory</h3><p>Change the date, words and typography. Your photo and video stay untouched.</p></div>
+    <div class="memory-text-grid">
+      <label><span>Date</span><input type="date" data-text-field="date"></label>
+      <label><span>Title</span><input type="text" maxlength="80" data-text-field="title" placeholder="A little moment"></label>
+      <label class="memory-text-wide"><span>Note</span><textarea maxlength="240" data-text-field="note" placeholder="Add a little story…"></textarea></label>
+      <div class="memory-style-card memory-text-wide"><div class="memory-style-title"><span>Title style</span><i>Preview</i></div>
+        <div class="memory-style-grid">
+          <label><span>Font</span><select data-text-field="titleFont">${Object.entries(EDITOR_FONT_OPTIONS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join("")}</select></label>
+          <label><span>Size</span><input type="range" min="18" max="40" step="1" data-text-field="titleSize"><b data-text-value="titleSize"></b></label>
+          <label><span>Color</span><input type="color" data-text-field="titleColor"></label>
+          <div class="memory-style-preview" data-text-preview="title">Our little moment</div>
+        </div>
+      </div>
+      <div class="memory-style-card memory-text-wide"><div class="memory-style-title"><span>Note style</span><i>Preview</i></div>
+        <div class="memory-style-grid">
+          <label><span>Font</span><select data-text-field="noteFont">${Object.entries(EDITOR_FONT_OPTIONS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join("")}</select></label>
+          <label><span>Size</span><input type="range" min="9" max="18" step="1" data-text-field="noteSize"><b data-text-value="noteSize"></b></label>
+          <label><span>Color</span><input type="color" data-text-field="noteColor"></label>
+          <div class="memory-style-preview memory-style-preview-note" data-text-preview="note">A soft little note, just for us.</div>
+        </div>
+      </div>
+      <div class="memory-style-card memory-text-wide"><div class="memory-style-title"><span>Alignment</span><i>Card text</i></div>
+        <div class="memory-align-picker" role="group" aria-label="Text alignment"><button type="button" data-text-align="left">Left</button><button type="button" data-text-align="center">Center</button></div>
+      </div>
+    </div>
+    <div class="memory-text-actions"><button class="memory-text-cancel" type="button" data-text-editor-close>Cancel</button><button class="memory-text-save" type="button" data-text-editor-save>Save changes</button></div>
+  </section>`;
+  document.body.appendChild(modal);
+  const updatePreview=()=>{
+    const get=k=>modal.querySelector(`[data-text-field="${k}"]`);
+    const tf=safeEditorFont(get("titleFont")?.value);const nf=safeEditorFont(get("noteFont")?.value||"dm");
+    const ts=safeEditorSize(get("titleSize")?.value,24);const ns=safeEditorSize(get("noteSize")?.value,10);
+    const tc=safeEditorColor(get("titleColor")?.value,"#65486d");const nc=safeEditorColor(get("noteColor")?.value,"#9b839f");
+    const tp=modal.querySelector('[data-text-preview="title"]');const np=modal.querySelector('[data-text-preview="note"]');
+    if(tp){tp.style.cssText=`font-family:${EDITOR_FONT_OPTIONS[tf].family};font-size:${ts}px;color:${tc}`;tp.textContent=get("title")||"Our little moment";}
+    if(np){np.style.cssText=`font-family:${EDITOR_FONT_OPTIONS[nf].family};font-size:${ns}px;color:${nc}`;np.textContent=get("note")||"A soft little note, just for us.";}
+    const tv=modal.querySelector('[data-text-value="titleSize"]');const nv=modal.querySelector('[data-text-value="noteSize"]');
+    if(tv) tv.textContent=`${ts}px`;if(nv) nv.textContent=`${ns}px`;
+  };
+  modal.addEventListener("input",e=>{if(e.target.matches("[data-text-field]"))updatePreview();});
+  modal.addEventListener("change",e=>{if(e.target.matches("[data-text-field]"))updatePreview();});
+  modal.addEventListener("click",e=>{
+    if(e.target.closest("[data-text-editor-close]")){closeMemoryTextEditor();return;}
+    const align=e.target.closest("[data-text-align]");if(align){modal.dataset.align=align.dataset.textAlign;modal.querySelectorAll("[data-text-align]").forEach(b=>b.classList.toggle("active",b===align));}
+    if(e.target.closest("[data-text-editor-save]"))saveMemoryTextEditor();
+  });
+  return modal;
+}
+function openMemoryTextEditor(item){
+  if(!item?.id||!driveReady)return;
+  const modal=ensureMemoryTextEditor();const p=item.appProperties||{};memoryTextEditorState.item=item;
+  const vals={date:p.oj_date||item.createdTime?.slice(0,10)||isoToday(),title:p.oj_title||item.name||"",note:p.oj_note||"",titleFont:safeEditorFont(p.oj_titleFont),titleSize:safeEditorSize(p.oj_titleSize,24),titleColor:safeEditorColor(p.oj_titleColor,"#65486d"),noteFont:safeEditorFont(p.oj_noteFont||"dm"),noteSize:safeEditorSize(p.oj_noteSize,10),noteColor:safeEditorColor(p.oj_noteColor,"#9b839f")};
+  Object.entries(vals).forEach(([k,v])=>{const el=modal.querySelector(`[data-text-field="${k}"]`);if(el)el.value=String(v);});
+  modal.dataset.align=safeEditorAlign(p.oj_textAlign);modal.querySelectorAll("[data-text-align]").forEach(b=>b.classList.toggle("active",b.dataset.textAlign===modal.dataset.align));
+  modal.hidden=false;modal.setAttribute("aria-hidden","false");document.body.style.overflow="hidden";
+  modal.querySelector('[data-text-field="title"]')?.focus();
+  ["title","note","titleFont","titleSize","titleColor","noteFont","noteSize","noteColor"].forEach(k=>{const el=modal.querySelector(`[data-text-field="${k}"]`);if(el)el.dispatchEvent(new Event("input",{bubbles:true}));});
+}
+function closeMemoryTextEditor(){const modal=document.getElementById("memoryTextEditor");if(!modal)return;modal.hidden=true;modal.setAttribute("aria-hidden","true");document.body.style.overflow="";memoryTextEditorState.item=null;}
+async function saveMemoryTextEditor(){
+  const item=memoryTextEditorState.item,modal=ensureMemoryTextEditor();if(!item)return;
+  if(!(await ensureDriveReady()))return;
+  const get=k=>modal.querySelector(`[data-text-field="${k}"]`)?.value||"";
+  const metadata={
+    name:item.name,
+    appProperties:{...(item.appProperties||{}),oj_kind:item.appProperties?.oj_kind||"photo",oj_date:get("date")||isoToday(),oj_title:get("title").trim().slice(0,80)||item.name,oj_note:get("note").trim().slice(0,240),oj_titleFont:safeEditorFont(get("titleFont")),oj_titleSize:String(safeEditorSize(get("titleSize"),24)),oj_titleColor:safeEditorColor(get("titleColor"),"#65486d"),oj_noteFont:safeEditorFont(get("noteFont")||"dm"),oj_noteSize:String(safeEditorSize(get("noteSize"),10)),oj_noteColor:safeEditorColor(get("noteColor"),"#9b839f"),oj_textAlign:safeEditorAlign(modal.dataset.align)}
+  };
+  const btn=modal.querySelector("[data-text-editor-save]");if(btn)btn.disabled=true;
+  try{showToast("Saving memory details…");const response=await workerFetch("/api/drive/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({fileId:item.id,metadata})});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error?.message||result.error_description||"保存记忆信息失败");closeMemoryTextEditor();showToast("Memory details updated.","success");await listMemories();}
+  catch(error){console.error(error);showToast(error.message||"保存失败","error");}
+  finally{if(btn)btn.disabled=false;}
 }
 
 /* v10 — lightweight in-browser photo editor */
@@ -658,7 +763,7 @@ memoryGrid?.addEventListener("click",event=>{
     event.stopPropagation();
     const card=editButton.closest("[data-memory-index]");
     const index=Number(card?.dataset.memoryIndex);
-    if(Number.isInteger(index)&&driveMemories[index]) openImageEditor(driveMemories[index]);
+    if(Number.isInteger(index)&&driveMemories[index]) openMemoryTextEditor(driveMemories[index]);
     return;
   }
   const deleteButton=event.target.closest("[data-memory-delete]");
