@@ -229,7 +229,8 @@ function memoryCardHTML(item,index){
     ${note?`<p>${note}</p>`:""}
     <div class="memory-actions">
       <button class="memory-delete-btn" type="button" data-memory-delete aria-label="Delete ${title}" title="Delete memory">
-        <span aria-hidden="true">⌫</span><span>Delete</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h6M10 5V4h4v1m-8 2h12m-9 0 .6 11h8.8L19 7m-7 3v6m-3-6 .5 6m7-6-.5 6"/></svg>
+        <span>Delete</span>
       </button>
     </div>
   </article>`;
@@ -318,12 +319,14 @@ function ensureDeleteDialog(){
   dialog.hidden=true;
   dialog.innerHTML=`<div class="memory-delete-backdrop" data-delete-cancel></div>
     <div class="memory-delete-sheet" role="dialog" aria-modal="true" aria-labelledby="memoryDeleteTitle">
-      <span class="memory-delete-mark">⌫</span>
+      <button class="memory-delete-close" type="button" data-delete-cancel aria-label="Close">×</button>
+      <div class="memory-delete-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 5h6M10 5V4h4v1m-8 2h12m-9 0 .6 11h8.8L19 7m-7 3v6m-3-6 .5 6m7-6-.5 6"/></svg></div>
+      <span class="memory-delete-eyebrow">PRIVATE MEMORY</span>
       <h3 id="memoryDeleteTitle">Delete this memory?</h3>
-      <p id="memoryDeleteText">This memory will be removed from the private Google Drive.</p>
+      <p id="memoryDeleteText">This memory will be permanently removed from the private Google Drive.</p>
       <div class="memory-delete-actions">
-        <button type="button" class="soft-btn" data-delete-cancel>Cancel</button>
-        <button type="button" class="primary-btn memory-delete-confirm" data-delete-confirm>Delete</button>
+        <button type="button" class="memory-delete-keep" data-delete-cancel>Keep it</button>
+        <button type="button" class="memory-delete-confirm" data-delete-confirm><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h6M10 5V4h4v1m-8 2h12m-9 0 .6 11h8.8L19 7m-7 3v6m-3-6 .5 6m7-6-.5 6"/></svg><span>Delete memory</span></button>
       </div>
     </div>`;
   document.body.appendChild(dialog);
