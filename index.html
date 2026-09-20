@@ -15,7 +15,6 @@
   <meta name="description" content="Our little story — memories, birthdays, and the journey of M ♡ T.">
   <title>Our Journey ♡ M 💞 T</title>
   <link rel="stylesheet" href="styles.css">
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="drive-config.js"></script>
 </head>
 <body>
@@ -176,15 +175,14 @@
         <div>
           <span class="section-kicker">OUR PRIVATE MEMORY CABINET</span>
           <h2>Keep the little moments<br><em>close to our story.</em></h2>
-          <p>Photos and videos stay in your private Google Drive. Our Journey only asks for access to the files it creates for this memory space.</p>
+          <p>Photos and videos stay in the private Google Drive connected to Our Journey. You and your loved one do not need to sign in to Google on this website.</p>
         </div>
         <div class="vault-tools">
           <div class="drive-status" id="driveStatus">
             <span class="drive-dot"></span>
-            <span id="driveStatusText">Google Drive not connected</span>
+            <span id="driveStatusText">Connecting to our private Drive…</span>
           </div>
           <div class="vault-buttons">
-            <button class="soft-btn drive-connect-btn" id="driveConnectBtn" type="button">Connect Google Drive</button>
             <button class="primary-btn drive-add-btn" id="driveAddBtn" type="button" hidden>＋ Add Memory</button>
             <button class="soft-btn drive-refresh-btn" id="driveRefreshBtn" type="button" hidden>Refresh</button>
           </div>
@@ -193,14 +191,14 @@
 
       <div class="vault-note" id="driveSetupNote">
         <span>♡</span>
-        <div><strong>Private by design</strong><p>The website does not need your Google password, and no Google Client Secret is stored in this GitHub Pages project.</p></div>
+        <div><strong>Private by design</strong><p>The shared cabinet uses the owner’s private Google Drive through the Cloudflare Worker. No visitor Google sign-in is required.</p></div>
       </div>
 
       <div class="memory-grid" id="memoryGrid" aria-live="polite">
         <article class="memory-empty" id="memoryEmpty">
           <div class="memory-empty-mark">♡</div>
           <h3>Your memories will live here.</h3>
-          <p>Connect Google Drive, then add the first photo or video to start the cabinet.</p>
+          <p>The cabinet connects automatically. Add a photo or video here to keep another little moment.</p>
         </article>
       </div>
     </section>

@@ -87,20 +87,18 @@ updateInstallUI();
   el.textContent = `${diff.toLocaleString()} days together`;
 })();
 
-// v5 — private Google Drive memory cabinet
-const GOOGLE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const DRIVE_API = "https://www.googleapis.com/drive/v3/files";
-const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
-let googleCodeClient = null;
-let driveAccessToken = null;
-let driveTokenExpiresAt = 0;
-let driveFolderId = localStorage.getItem("ourJourneyDriveFolderId") || "";
-let driveUserEmail = "";
+// v6 — owner-backed Google Drive memory cabinet
+// The browser never signs into Google. Cloudflare Worker owns the Google OAuth session
+// and exposes only the memory-cabinet operations needed by this page.
+const DRIVE_API_BASE = String(config.DRIVE_API_BASE || "").replace(/\/$/, "");
+const DRIVE_FOLDER_ID = config.DRIVE_FOLDER_ID || localStorage.getItem("ourJourneyDriveFolderId") || "";
+let driveFolderId = DRIVE_FOLDER_ID;
+let driveReady = false;
+let driveStatusPromise = null;
 let driveMemories = [];
 
 const driveStatus = $("driveStatus");
 const driveStatusText = $("driveStatusText");
-const driveConnectBtn = $("driveConnectBtn");
 const driveAddBtn = $("driveAddBtn");
 const driveRefreshBtn = $("driveRefreshBtn");
 const driveSetupNote = $("driveSetupNote");
@@ -124,7 +122,7 @@ const lightboxMedia = $("lightboxMedia");
 const lightboxCaption = $("lightboxCaption");
 
 function workerConfigured(){
-  return config.DRIVE_API_BASE && !String(config.DRIVE_API_BASE).includes("REPLACE-WITH-YOUR-WORKER");
+  return Boolean(DRIVE_API_BASE && !DRIVE_API_BASE.includes("REPLACE-WITH-YOUR-WORKER"));
 }
 function setDriveStatus(state, text){
   if (driveStatus) driveStatus.dataset.state=state;
@@ -140,71 +138,72 @@ function escapeHTML(value){
   return String(value ?? "").replace(/[&<>\"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 }
 function isoToday(){ return new Date().toISOString().slice(0,10); }
+function workerURL(path){
+  if(!workerConfigured()) throw new Error("还没有配置 Google Drive Worker 地址。");
+  return `${DRIVE_API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+}
 
-function initGoogleCodeClient(){
-  if (!window.google?.accounts?.oauth2 || !config.GOOGLE_CLIENT_ID) return false;
-  googleCodeClient = google.accounts.oauth2.initCodeClient({
-    client_id: config.GOOGLE_CLIENT_ID,
-    scope: GOOGLE_SCOPE,
-    ux_mode: "popup",
-    select_account: true,
-    callback: async (response) => {
-      if (response?.error) { showToast(`Google 授权未完成：${response.error}`, "error"); return; }
-      try { await exchangeCode(response.code); }
-      catch (err) { console.error(err); setDriveStatus("error", "Google Drive connection failed"); showToast(err.message || "Google Drive 授权失败", "error"); }
+async function workerFetch(path, options={}){
+  const response = await fetch(workerURL(path), {
+    ...options,
+    cache: "no-store",
+    credentials: "omit"
+  });
+  const contentType = response.headers.get("content-type") || "";
+  if (!response.ok) {
+    let message = `云端请求失败：${response.status}`;
+    if (contentType.includes("application/json")) {
+      const data = await response.json().catch(()=>({}));
+      message = data.error?.message || data.error_description || data.error || message;
+    } else {
+      const text = await response.text().catch(()=>"");
+      if (text) message = text.slice(0,180);
     }
-  });
-  return true;
-}
-
-async function exchangeCode(code){
-  if(!workerConfigured()) throw new Error("还没有配置 Google Drive Worker。先把 drive-config.js 里的 Worker 地址换成你的 Cloudflare Worker 地址。");
-  setDriveStatus("busy", "Connecting to Google Drive…");
-  driveConnectBtn.disabled=true;
-  const response=await fetch(`${config.DRIVE_API_BASE.replace(/\/$/,"")}/oauth/code`,{
-    method:"POST",
-    headers:{"Content-Type":"application/x-www-form-urlencoded","X-Requested-With":"XMLHttpRequest"},
-    body:new URLSearchParams({code}),
-    credentials:"omit"
-  });
-  const data=await response.json().catch(()=>({}));
-  if(!response.ok || !data.access_token) throw new Error(data.error_description || data.error || `授权服务器返回 ${response.status}`);
-  driveAccessToken=data.access_token;
-  driveTokenExpiresAt=Date.now()+Math.max(30, Number(data.expires_in||3600)-60)*1000;
-  driveConnectBtn.hidden=true;
-  driveAddBtn.hidden=false;
-  driveRefreshBtn.hidden=false;
-  if (driveSetupNote) driveSetupNote.hidden=true;
-  setDriveStatus("connected", "Google Drive connected");
-  showToast("Google Drive 已连接。你的文件保持在自己的 Drive 里。", "success");
-  await ensureDriveFolder();
-  await listMemories();
-  driveConnectBtn.disabled=false;
-}
-
-async function refreshAccessTokenIfNeeded(){
-  // Access tokens are intentionally memory-only in v1. Reconnect after expiry instead of persisting a refresh token.
-  if(!driveAccessToken || Date.now()>=driveTokenExpiresAt) throw new Error("Google Drive 授权已过期，请重新连接 Google Drive。");
-  return driveAccessToken;
-}
-async function driveFetch(url, options={}){
-  const token=await refreshAccessTokenIfNeeded();
-  const headers=new Headers(options.headers||{});
-  headers.set("Authorization", `Bearer ${token}`);
-  const response=await fetch(url,{...options,headers});
-  if(response.status===401){ driveAccessToken=null; driveTokenExpiresAt=0; setDriveStatus("error","Google Drive authorization expired"); throw new Error("Google Drive 授权已过期，请重新连接 Google Drive。"); }
+    throw new Error(message);
+  }
   return response;
 }
 
-async function ensureDriveFolder(){
-  if(driveFolderId) return driveFolderId;
-  const meta={name:"Our Journey",mimeType:"application/vnd.google-apps.folder",appProperties:{oj_kind:"root"}};
-  const response=await driveFetch(DRIVE_API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(meta)});
-  if(!response.ok) throw new Error(`无法创建 Our Journey 文件夹：${response.status}`);
-  const data=await response.json();
-  driveFolderId=data.id;
-  localStorage.setItem("ourJourneyDriveFolderId",driveFolderId);
-  return driveFolderId;
+async function initOwnerDrive(force=false){
+  if(!workerConfigured()){
+    driveReady=false;
+    setDriveStatus("error","Google Drive Worker not configured");
+    if(driveSetupNote) driveSetupNote.hidden=false;
+    return false;
+  }
+  if(!force && driveStatusPromise) return driveStatusPromise;
+  driveStatusPromise=(async()=>{
+    try{
+      setDriveStatus("busy","Connecting to our private Drive…");
+      const response=await workerFetch("/api/owner/status");
+      const data=await response.json().catch(()=>({}));
+      if(!data.configured || data.token_refresh_ok === false){
+        throw new Error("Owner Google Drive 还没有准备好，请检查 Cloudflare Worker Secret。");
+      }
+      driveReady=true;
+      if(driveSetupNote) driveSetupNote.hidden=true;
+      if(driveAddBtn) driveAddBtn.hidden=false;
+      if(driveRefreshBtn) driveRefreshBtn.hidden=false;
+      setDriveStatus("connected","Google Drive connected");
+      await listMemories();
+      return true;
+    }catch(err){
+      driveReady=false;
+      if(driveAddBtn) driveAddBtn.hidden=true;
+      if(driveRefreshBtn) driveRefreshBtn.hidden=true;
+      setDriveStatus("error","Google Drive connection failed");
+      showToast(err.message || "Google Drive 连接失败","error");
+      return false;
+    }finally{
+      driveStatusPromise=null;
+    }
+  })();
+  return driveStatusPromise;
+}
+
+async function ensureDriveReady(){
+  if(driveReady && driveFolderId) return true;
+  return await initOwnerDrive(true);
 }
 
 function formatBytes(bytes){
@@ -219,9 +218,10 @@ function memoryCardHTML(item,index){
   const note=escapeHTML(item.appProperties?.oj_note || "");
   const kind=item.mimeType?.startsWith("video/")?"video":"photo";
   const posterId=item.appProperties?.oj_posterId || "";
+  const mediaId=kind==="video" ? posterId : item.id;
   return `<article class="memory-card" data-memory-index="${index}">
     <button class="memory-visual" type="button" aria-label="Open ${title}">
-      <div class="memory-media-shell" data-memory-media data-id="${escapeHTML(kind==='video'?posterId:item.id)}" data-thumb="${escapeHTML(item.thumbnailLink || "")}" data-kind="${kind}" data-name="${escapeHTML(item.name)}"><span class="memory-loading">♡</span></div>
+      <div class="memory-media-shell" data-memory-media data-id="${escapeHTML(mediaId)}" data-kind="${kind}" data-name="${escapeHTML(item.name)}"><span class="memory-loading">♡</span></div>
       ${kind==='video'?'<span class="memory-type">VIDEO</span>':''}
     </button>
     <div class="memory-meta"><div><span>${date}</span><h3>${title}</h3></div><span class="memory-size">${formatBytes(item.size)}</span></div>
@@ -230,44 +230,58 @@ function memoryCardHTML(item,index){
 }
 
 async function listMemories(){
-  if(!driveFolderId) return;
+  if(!memoryGrid || !memoryEmpty) return;
+  if(!driveFolderId){
+    memoryGrid.innerHTML="";
+    memoryGrid.appendChild(memoryEmpty);
+    memoryEmpty.hidden=false;
+    throw new Error("没有配置 Our Journey Drive 文件夹。");
+  }
   memoryGrid.innerHTML="";
   memoryGrid.appendChild(memoryEmpty);
   memoryEmpty.hidden=false;
   const q=`'${driveFolderId}' in parents and trashed = false`;
-  const url=`${DRIVE_API}?q=${encodeURIComponent(q)}&orderBy=createdTime%20desc&pageSize=50&fields=files(id,name,mimeType,size,createdTime,modifiedTime,thumbnailLink,appProperties),nextPageToken`;
-  const response=await driveFetch(url);
+  const url=`/api/drive/list?folderId=${encodeURIComponent(driveFolderId)}&q=${encodeURIComponent(q)}`;
+  const response=await workerFetch(url);
   const data=await response.json();
   if(!response.ok) throw new Error(data.error?.message || `读取 Drive 记忆失败：${response.status}`);
-  driveMemories=(data.files||[]).filter(item => { const kind=item.appProperties?.oj_kind; return kind === "photo" || kind === "video"; });
-  if(!driveMemories.length){ memoryEmpty.hidden=false; return; }
+  driveMemories=(data.files||[]).filter(item => {
+    const kind=item.appProperties?.oj_kind;
+    return kind === "photo" || kind === "video";
+  });
+  if(!driveMemories.length){
+    memoryEmpty.hidden=false;
+    return;
+  }
   memoryEmpty.hidden=true;
   driveMemories.forEach((item,index)=>memoryGrid.insertAdjacentHTML("beforeend",memoryCardHTML(item,index)));
   await hydrateMemoryMedia();
 }
 
 async function fetchDriveBlob(fileId){
-  const response=await driveFetch(`${DRIVE_API}/${encodeURIComponent(fileId)}?alt=media`,{method:"GET"});
-  if(!response.ok) throw new Error(`读取媒体失败：${response.status}`);
+  if(!fileId) throw new Error("缺少媒体文件 ID。");
+  const response=await workerFetch(`/api/drive/media/${encodeURIComponent(fileId)}`);
   return response.blob();
 }
 async function hydrateMemoryMedia(){
   const nodes=[...document.querySelectorAll("[data-memory-media]")];
-  const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{if(entry.isIntersecting){ observer.unobserve(entry.target); loadMemoryThumb(entry.target).catch(()=>{}); }}),{rootMargin:"160px"});
+  if(!nodes.length) return;
+  if(!("IntersectionObserver" in window)){
+    await Promise.all(nodes.map(n=>loadMemoryThumb(n).catch(()=>{})));
+    return;
+  }
+  const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{
+    if(entry.isIntersecting){ observer.unobserve(entry.target); loadMemoryThumb(entry.target).catch(()=>{}); }
+  }),{rootMargin:"160px"});
   nodes.forEach(n=>observer.observe(n));
 }
 async function loadMemoryThumb(shell){
   if(shell.dataset.loaded==="1") return;
   shell.dataset.loaded="1";
-  const id=shell.dataset.id; if(!id) { shell.innerHTML='<span class="memory-fallback">Video</span>'; return; }
+  const id=shell.dataset.id;
+  if(!id){ shell.innerHTML='<span class="memory-fallback">Video</span>'; return; }
   try{
-    let blob=null;
-    const thumb=shell.dataset.thumb;
-    if(thumb){
-      const response=await driveFetch(thumb);
-      if(response.ok) blob=await response.blob();
-    }
-    if(!blob) blob=await fetchDriveBlob(id);
+    const blob=await fetchDriveBlob(id);
     const url=URL.createObjectURL(blob);
     shell.innerHTML=`<img src="${url}" alt="Memory" loading="lazy">`;
     shell.dataset.objectUrl=url;
@@ -275,7 +289,7 @@ async function loadMemoryThumb(shell){
 }
 
 function openMemoryModal(){
-  if(!driveAccessToken){ showToast("先连接 Google Drive。", "error"); return; }
+  if(!driveReady){ showToast("Google Drive 还在连接，请稍等片刻。","error"); initOwnerDrive(true); return; }
   if(memoryDate) memoryDate.value=isoToday();
   if(memoryTitleInput) memoryTitleInput.value="";
   if(memoryNote) memoryNote.value="";
@@ -332,67 +346,50 @@ async function createVideoPoster(file){
   const maxSide=1280; const scale=Math.min(1,maxSide/Math.max(video.videoWidth,video.videoHeight));
   const w=Math.max(1,Math.round(video.videoWidth*scale)), h=Math.max(1,Math.round(video.videoHeight*scale));
   const canvas=document.createElement("canvas"); canvas.width=w; canvas.height=h; canvas.getContext("2d").drawImage(video,0,0,w,h);
-  const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.86));
+  const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("无法生成视频封面")),"image/jpeg",0.86));
   URL.revokeObjectURL(url); video.remove();
   return new File([blob], file.name.replace(/\.[^.]+$/i,"")+"-poster.jpg",{type:"image/jpeg",lastModified:Date.now()});
 }
 
-async function uploadMultipart(file, metadata){
-  const boundary=`oj_${crypto.randomUUID()}`;
-  const body=new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,JSON.stringify(metadata),`\r\n--${boundary}\r\nContent-Type: ${file.type}\r\n\r\n`,file,`\r\n--${boundary}--`],{type:`multipart/related; boundary=${boundary}`});
-  const response=await driveFetch(`${DRIVE_UPLOAD}?uploadType=multipart&fields=id,name,mimeType,size,createdTime,appProperties`,{method:"POST",headers:{"Content-Type":`multipart/related; boundary=${boundary}`},body});
-  const data=await response.json().catch(()=>({}));
-  if(!response.ok) throw new Error(data.error?.message || `上传失败：${response.status}`);
-  return data;
-}
-
-async function initiateResumable(file, metadata){
-  const response=await driveFetch(`${DRIVE_UPLOAD}?uploadType=resumable`,{method:"POST",headers:{"Content-Type":"application/json; charset=UTF-8","X-Upload-Content-Type":file.type,"X-Upload-Content-Length":String(file.size)},body:JSON.stringify(metadata)});
-  if(!response.ok) throw new Error(`无法建立续传会话：${response.status}`);
-  const location=response.headers.get("Location"); if(!location) throw new Error("Google Drive 没有返回续传地址。");
-  return location;
-}
-async function uploadResumable(file,metadata,onProgress){
-  const uploadUrl=await initiateResumable(file,metadata);
-  const chunkSize=8*1024*1024;
-  let offset=0;
-  while(offset<file.size){
-    const end=Math.min(file.size,offset+chunkSize); const chunk=file.slice(offset,end);
-    const response=await driveFetch(uploadUrl,{method:"PUT",headers:{"Content-Length":String(chunk.size),"Content-Range":`bytes ${offset}-${end-1}/${file.size}`},body:chunk});
-    if(response.status===308){ offset=end; onProgress(offset/file.size*100); continue; }
-    if(!response.ok){ const data=await response.json().catch(()=>({})); throw new Error(data.error?.message || `续传失败：${response.status}`); }
-    offset=end; onProgress(100); return response.json();
-  }
-  throw new Error("续传未完成");
+async function uploadViaWorker(file, metadata){
+  const form=new FormData();
+  form.append("metadata",JSON.stringify(metadata));
+  form.append("file",file,file.name);
+  const response=await workerFetch("/api/drive/upload",{method:"POST",body:form});
+  return response.json();
 }
 
 async function uploadMemory(){
   const file=memoryFile.files?.[0];
   if(!file){ showToast("先选择一张照片或一个视频。","error"); return; }
   if(!memoryDate.value){ showToast("请选择日期。","error"); return; }
+  if(!await ensureDriveReady()) return;
+  if(!driveFolderId){ showToast("没有找到 Our Journey Drive 文件夹。","error"); return; }
   const title=(memoryTitleInput.value||file.name).trim().slice(0,80);
   const note=memoryNote.value.trim().slice(0,240);
   memoryUploadBtn.disabled=true;
   try{
-    await ensureDriveFolder();
     let uploadFile=file;
-    setProgress("Preparing your memory…",4);
+    setProgress("Preparing your memory…",6);
     if(file.type.startsWith("image/")) uploadFile=await prepareImage(file,memorySoftTone.checked);
     const kind=file.type.startsWith("video/")?"video":"photo";
     let posterId="";
     if(kind==="video"){
-      setProgress("Making a soft video cover…",10);
+      setProgress("Making a soft video cover…",14);
       const poster=await createVideoPoster(file);
       const posterMeta={name:poster.name,parents:[driveFolderId],appProperties:{oj_kind:"poster",oj_parentName:file.name}};
-      const posterResult=await uploadMultipart(poster,posterMeta); posterId=posterResult.id;
+      const posterResult=await uploadViaWorker(poster,posterMeta);
+      posterId=posterResult.id || "";
+      if(!posterId) throw new Error("视频封面上传失败。");
     }
+    setProgress("Uploading to our private Google Drive…",24);
     const metadata={
       name:uploadFile.name,
       parents:[driveFolderId],
       appProperties:{oj_kind:kind,oj_date:memoryDate.value,oj_title:title,oj_note:note,oj_posterId:posterId,oj_originalName:file.name}
     };
-    const useResumable=uploadFile.size>5*1024*1024;
-    const result=useResumable ? await uploadResumable(uploadFile,metadata,v=>setProgress("Uploading to Google Drive…",15+v*0.82)) : await uploadMultipart(uploadFile,metadata);
+    const result=await uploadViaWorker(uploadFile,metadata);
+    if(!result?.id) throw new Error("Google Drive 没有返回文件 ID。");
     setProgress("Saved to our little cabinet",100);
     showToast(`已保存：${title}`,"success");
     closeMemoryModal();
@@ -408,24 +405,14 @@ function openLightbox(item){
   (async()=>{
     try{
       const kind=item.mimeType?.startsWith("video/")?"video":"photo";
-      if(kind==="photo"){
-        const blob=await fetchDriveBlob(item.id); const url=URL.createObjectURL(blob); lightboxMedia.innerHTML=`<img src="${url}" alt="Memory">`;
-      } else {
-        const blob=await fetchDriveBlob(item.id); const url=URL.createObjectURL(blob); lightboxMedia.innerHTML=`<video src="${url}" controls autoplay playsinline></video>`;
-      }
+      const blob=await fetchDriveBlob(item.id);
+      const url=URL.createObjectURL(blob);
+      lightboxMedia.innerHTML=kind==="photo"?`<img src="${url}" alt="Memory">`:`<video src="${url}" controls autoplay playsinline></video>`;
     }catch(err){ lightboxMedia.innerHTML='<div class="lightbox-error">Unable to open this memory right now.</div>'; }
   })();
 }
 function closeLightbox(){ if(!lightbox) return; lightbox.hidden=true; lightbox.setAttribute("aria-hidden","true"); lightboxMedia.innerHTML=""; document.body.style.overflow=""; }
 
-driveConnectBtn?.addEventListener("click", async ()=>{
-  if(!workerConfigured()){ showToast("还差一个设置：把 drive-config.js 里的 Worker 地址替换掉。","error"); return; }
-  if(!googleCodeClient){
-    const ready=initGoogleCodeClient();
-    if(!ready){ showToast("Google 授权组件还没加载完成，请稍等 1 秒再点一次。","error"); return; }
-  }
-  try{ googleCodeClient.requestCode(); }catch(err){ showToast(err.message||"无法打开 Google 授权","error"); }
-});
 driveAddBtn?.addEventListener("click",openMemoryModal);
 driveRefreshBtn?.addEventListener("click",()=>listMemories().catch(err=>showToast(err.message,"error")));
 memoryFile?.addEventListener("change",previewSelectedFile);
@@ -437,5 +424,11 @@ memoryGrid?.addEventListener("click",event=>{
   const index=Number(card.dataset.memoryIndex); if(Number.isInteger(index)&&driveMemories[index]) openLightbox(driveMemories[index]);
 });
 
-if(driveSetupNote && workerConfigured()) driveSetupNote.innerHTML='<span>♡</span><div><strong>Private by design</strong><p>Photos and videos stay in your Google Drive. This website never stores your Google password or OAuth Client Secret.</p></div>';
-setDriveStatus("idle","Google Drive not connected");
+if(driveSetupNote && workerConfigured()) driveSetupNote.innerHTML='<span>♡</span><div><strong>Private by design</strong><p>This shared memory cabinet uses your private Google Drive through a secure Cloudflare Worker. Visitors do not need to sign in to Google.</p></div>';
+setDriveStatus("busy","Connecting to our private Drive…");
+
+// Auto-restore the owner-backed cabinet after reload / returning to the tab.
+window.addEventListener("pageshow",()=>initOwnerDrive(true));
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) initOwnerDrive(); });
+window.addEventListener("load",()=>initOwnerDrive(true));
+

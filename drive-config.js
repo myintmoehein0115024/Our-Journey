@@ -6,5 +6,7 @@
  */
 window.OUR_JOURNEY_CONFIG = Object.freeze({
   GOOGLE_CLIENT_ID: "352730696085-iq5q2o0uct9c44n96mfdvp9dmhjmq94o.apps.googleusercontent.com",
-  DRIVE_API_BASE: "https://our-journey-drive-api.myintmoehein0115024.workers.dev"
+  DRIVE_API_BASE: "https://our-journey-drive-api.myintmoehein0115024.workers.dev",
+  // Existing Google Drive folder: My Drive / Our-Journey
+  DRIVE_FOLDER_ID: "1HW4yhcGESSUoRTBuDO23E65ErBiPL6i"
 });
