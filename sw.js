@@ -1,4 +1,4 @@
-const CACHE = "our-journey-v6-owner-drive";
+const CACHE = "our-journey-v7-owner-drive";
 const CORE = [
   "./",
   "./index.html",
