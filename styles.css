@@ -150,3 +150,33 @@ footer{text-align:center;padding:30px 20px 45px;border-top:1px solid rgba(118,77
   .place-card h3{font-size:24px}.place-card p{font-size:10px}.place-card b{left:15px;bottom:17px}
   .place-number{right:15px;top:17px}.place-icon{width:40px;height:40px;border-radius:14px}
 }
+
+/* v3 — Logo + cross-platform install experience */
+.brand-row{display:flex;align-items:center;justify-content:center;gap:18px;position:relative;min-height:36px}
+.install-trigger{border:1px solid rgba(133,91,145,.16);background:rgba(255,255,255,.62);color:#93638e;border-radius:999px;padding:8px 13px;display:flex;align-items:center;gap:6px;cursor:pointer;box-shadow:0 8px 22px rgba(117,78,131,.06);font-size:10px;letter-spacing:.03em;transition:.22s}
+.install-trigger:hover{transform:translateY(-2px);background:rgba(255,255,255,.9);box-shadow:0 12px 28px rgba(117,78,131,.11)}
+.install-trigger span{font-size:15px;line-height:1;color:#c16d9f}.install-trigger b{font-weight:600}
+.install-modal[hidden]{display:none}
+.install-modal{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:18px}
+.install-backdrop{position:absolute;inset:0;background:rgba(58,39,66,.28);backdrop-filter:blur(8px)}
+.install-sheet{position:relative;width:min(440px,100%);max-height:min(760px,92vh);overflow:auto;background:linear-gradient(160deg,rgba(255,252,255,.98),rgba(247,235,249,.97));border:1px solid rgba(255,255,255,.96);border-radius:32px;padding:34px 30px 27px;box-shadow:0 35px 100px rgba(63,39,72,.25);text-align:center}
+.install-close{position:absolute;right:17px;top:15px;width:34px;height:34px;border:0;border-radius:50%;background:rgba(255,255,255,.8);color:#80607f;font-size:23px;line-height:1;cursor:pointer}
+.install-logo{width:76px;height:76px;margin:0 auto 15px;border-radius:23px;overflow:hidden;box-shadow:0 13px 30px rgba(123,78,128,.14)}
+.install-logo img{width:100%;height:100%;display:block}
+.install-sheet h2{font-family:"Cormorant Garamond",serif;font-size:43px;line-height:.93;margin:10px 0 12px}
+.install-intro{font-size:12px;line-height:1.7;color:#927a97;margin:0 auto 19px;max-width:330px}
+.install-action button{width:100%;border:0;border-radius:999px;padding:14px 18px;background:linear-gradient(135deg,#d986b5,#b96da5);color:white;font-weight:600;letter-spacing:.03em;cursor:pointer;box-shadow:0 12px 26px rgba(188,103,158,.22)}
+.install-action button span{margin-left:8px}
+.install-guide{background:rgba(255,255,255,.64);border:1px solid rgba(128,88,140,.09);border-radius:22px;padding:17px 18px;text-align:left;margin-top:13px}
+.install-guide h3{font-family:"Cormorant Garamond",serif;font-size:24px;margin:0 0 9px}
+.install-guide p{font-size:11px;line-height:1.7;color:#88728e;margin:6px 0}
+.install-guide .step{display:flex;gap:10px;align-items:flex-start;margin:9px 0}
+.install-guide .num{flex:0 0 23px;width:23px;height:23px;border-radius:50%;background:#f4dce9;color:#a25f91;display:grid;place-items:center;font-size:9px;font-weight:700}
+.install-guide strong{font-size:11px;color:#604467}.install-note{font-size:9px;color:#a38ba3;line-height:1.6;margin:14px 6px 0}
+@media(max-width:760px){
+  .brand-row{gap:11px;justify-content:space-between}.brand-row .brand-mark{margin-left:auto}.install-trigger{margin-left:auto}
+}
+@media(max-width:430px){
+  .install-trigger{padding:7px 10px}.install-trigger b{font-size:9px}
+  .install-sheet{padding:30px 21px 23px;border-radius:27px}.install-sheet h2{font-size:38px}
+}
